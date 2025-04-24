@@ -1,17 +1,14 @@
-from fastapi import APIRouter
-import boto3, uuid, os
+from fastapi import APIRouter, UploadFile, File
+import uuid, os, shutil
 
 router = APIRouter()
-s3 = boto3.client("s3")
-RAW_BUCKET = os.environ.get("RAW_BUCKET")
+UPLOAD_DIR = "./local_data/raw"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 @router.post("/upload")
-def upload_dataset():
+def upload_dataset(file: UploadFile = File(...)):
     dataset_id = str(uuid.uuid4())
-    key = f"raw/{dataset_id}.csv"
-    url = s3.generate_presigned_url(
-        "put_object",
-        Params={"Bucket": RAW_BUCKET, "Key": key, "ContentType": "text/csv"},
-        ExpiresIn=600,
-    )
-    return {"dataset_id": dataset_id, "upload_url": url}
+    file_path = os.path.join(UPLOAD_DIR, f"{dataset_id}.csv")
+    with open(file_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    return {"dataset_id": dataset_id, "file_path": file_path}
