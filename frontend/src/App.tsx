@@ -7,32 +7,59 @@ export default function App() {
   const [rows, setRows] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const handleUpload = async () => {
+    if (!file) return;
+    setLoading(true);
+    setMessage('Uploading...');
+
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append("file", file);
 
-    const uploadRes = await fetch('http://localhost:8000/upload', {
-      method: 'POST',
-      body: formData,
-    });
+    try {
+      const uploadRes = await fetch("http://localhost:8000/upload", {
+        method: "POST",
+        body: formData,
+      });
 
-    const data = await uploadRes.json();
-    setDatasetId(data.dataset_id);
-    setMessage('Uploaded. Now run evaluate_local(dataset_id) in the backend.');
+      const uploadData = await uploadRes.json();
+      const newDatasetId = uploadData.dataset_id;
+      setDatasetId(newDatasetId);
+      setMessage("Upload successful. Evaluating dataset...");
+
+      const evalRes = await fetch(`http://localhost:8000/evaluate/${newDatasetId}`, {
+        method: "POST",
+      });
+
+      const evalData = await evalRes.json();
+      if (evalData.status === "success") {
+        setMessage("Dataset evaluated successfully. You can now view metrics.");
+      } else {
+        setMessage("Evaluation failed: " + evalData.message);
+      }
+    } catch (error) {
+      setMessage("Upload or evaluation failed.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleGetMetrics = async () => {
+    setLoading(true);
     const res = await fetch(`http://localhost:8000/dataset/${datasetId}/metrics`);
     const data = await res.json();
     setMetrics(data);
+    setLoading(false);
   };
 
   const handleLoadRows = async () => {
+    setLoading(true);
     const res = await fetch(`./local_data/db/${datasetId}_rows.json`);
     const data = await res.json();
     setRows(data);
     setCurrentIndex(0);
+    setLoading(false);
   };
 
   const handleFixCategory = async (newCategory) => {
@@ -71,10 +98,10 @@ export default function App() {
           />
           <button
             onClick={handleUpload}
-            disabled={!file}
+            disabled={!file || loading}
             className="px-4 py-2 bg-blue-500 text-white rounded"
           >
-            Upload CSV
+            {loading ? "Uploading..." : "Upload CSV"}
           </button>
         </>
       )}
@@ -84,15 +111,17 @@ export default function App() {
           <p><strong>Dataset ID:</strong> {datasetId}</p>
           <button
             onClick={handleGetMetrics}
+            disabled={loading}
             className="mt-2 px-4 py-2 bg-green-500 text-white rounded mr-2"
           >
-            Get Metrics
+            {loading ? "Loading..." : "Get Metrics"}
           </button>
           <button
             onClick={handleLoadRows}
+            disabled={loading}
             className="mt-2 px-4 py-2 bg-yellow-500 text-white rounded"
           >
-            Load for Review
+            {loading ? "Loading..." : "Load for Review"}
           </button>
         </div>
       )}
