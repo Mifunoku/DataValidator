@@ -1,43 +1,42 @@
-import boto3, os, csv, io, uuid, datetime
 import pandas as pd
+import os, json
+from uuid import uuid4
 
-s3 = boto3.client("s3")
-dynamodb = boto3.resource("dynamodb")
-RAW_BUCKET = os.environ["RAW_BUCKET"]
-TABLE_NAME = os.environ["TABLE_NAME"]
+RAW_PATH = "./local_data/raw"
+DB_PATH = "./local_data/db"
+os.makedirs(DB_PATH, exist_ok=True)
 
+def evaluate_local(dataset_id):
+    csv_path = os.path.join(RAW_PATH, f"{dataset_id}.csv")
+    df = pd.read_csv(csv_path)
 
-def lambda_handler(event, context):
-    # EventBridge/S3 notification supplies bucket & key
-    key = event["Records"][0]["s3"]["object"]["key"]
-    dataset_id = key.split("/")[1].split(".")[0]
-    obj = s3.get_object(Bucket=RAW_BUCKET, Key=key)
-    df = pd.read_csv(io.BytesIO(obj["Body"].read()))
+    rows = []
+    wrong = 0
+    for i, row in df.iterrows():
+        fixed_category = None
+        if row["model_category"] != row.get("product_category", row["model_category"]):
+            wrong += 1
+        rows.append({
+            "id": i,
+            "product_text": row["product_text"],
+            "model_category": row["model_category"],
+            "fixed_category": fixed_category,
+        })
 
-    table = dynamodb.Table(TABLE_NAME)
-    with table.batch_writer() as batch:
-        for i, row in df.iterrows():
-            pk = f"DATASET#{dataset_id}"
-            sk = f"ROW#{i}"
-            batch.put_item(
-                Item={
-                    "PK": pk,
-                    "SK": sk,
-                    "product_text": row["product_text"],
-                    "model_category": row["model_category"],
-                    "fixed_category": None,
-                }
-            )
-
-    wrong = (df["product_category"] != df["model_category"]).sum()
     metrics = {
-        "PK": f"DATASET#{dataset_id}",
-        "SK": "METRICS",
         "total": len(df),
-        "wrong_initial": int(wrong),
+        "wrong_initial": wrong,
         "accuracy_initial": round(100 * (1 - wrong / len(df)), 2),
-        "wrong_current": int(wrong),
+        "wrong_current": wrong,
         "accuracy_current": round(100 * (1 - wrong / len(df)), 2),
-        "updated_at": datetime.datetime.utcnow().isoformat(),
+        "download_url": None,
     }
-    table.put_item(Item=metrics)
+
+    with open(os.path.join(DB_PATH, f"{dataset_id}_rows.json"), "w") as f:
+        json.dump(rows, f)
+
+    with open(os.path.join(DB_PATH, f"{dataset_id}_metrics.json"), "w") as f:
+        json.dump(metrics, f)
+
+    print(f"Processed dataset {dataset_id} with {len(rows)} rows")
+
