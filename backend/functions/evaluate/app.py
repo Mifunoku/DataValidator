@@ -1,53 +1,66 @@
 import pandas as pd
-import os, json
-from uuid import uuid4
+from google.cloud import firestore
+import uuid
 
-RAW_PATH = "./local_data/raw"
-DB_PATH = "./local_data/db"
-os.makedirs(DB_PATH, exist_ok=True)
 
-def evaluate_local(dataset_id, product_column, category_column):
-    csv_path = os.path.join(RAW_PATH, f"{dataset_id}.csv")
-    print("Reading CSV:", csv_path)
-    df = pd.read_csv(csv_path)
-    if len(df.columns) == 1:
-        df = pd.read_csv(csv_path, sep=';')
-    if len(df.columns) == 1:
-        raise Exception("CSV file accepts only ',' or ';' as separator")
+def evaluate_local(dataset_id, product_column: str, category_column: str):
+    db = firestore.Client()
 
-    print("Using product column:", product_column)
-    print("Using category column:", category_column)
+    # Path for raw uploads in GCS (adjust if needed)
+    raw_bucket_name = "your-raw-bucket-name"  # TODO: replace with your GCS raw bucket name
 
+    from google.cloud import storage
+    storage_client = storage.Client()
+    bucket = storage_client.bucket(raw_bucket_name)
+    blob = bucket.blob(f"raw/{dataset_id}.csv")
+
+    # Download raw CSV content
+    contents = blob.download_as_text()
+    df = pd.read_csv(pd.compat.StringIO(contents), sep=';')
+
+    # Build rows
     rows = []
+    correct = 0
     wrong = 0
 
-    for i, row in df.iterrows():
-        model_cat = row[category_column]
-        actual = row[product_column]
-        correct = model_cat == actual
-        if not correct:
+    for idx, row in df.iterrows():
+        product_text = row.get(product_column)
+        model_category = row.get(category_column)
+
+        if not isinstance(product_text, str) or not isinstance(model_category, str):
+            continue
+
+        correct_prediction = (product_text.lower() in model_category.lower())
+        if correct_prediction:
+            correct += 1
+        else:
             wrong += 1
 
         rows.append({
-            "id": i,
-            "product_text": str(actual),
-            "model_category": str(model_cat),
-            "fixed_category": None,
+            "id": idx,
+            "product_text": product_text,
+            "model_category": model_category,
+            "fixed_category": None
         })
 
-    metrics = {
-        "total": len(df),
+    # Save parsed rows into Firestore
+    batch = db.batch()
+    dataset_ref = db.collection("datasets").document(dataset_id)
+
+    for row in rows:
+        row_ref = dataset_ref.collection("rows").document(str(row["id"]))
+        batch.set(row_ref, row)
+
+    batch.commit()
+
+    print(f"Saved {len(rows)} rows for dataset {dataset_id} to Firestore")
+
+    # Save initial evaluation metrics into Firestore
+    dataset_ref.set({
+        "total": correct + wrong,
+        "correct_initial": correct,
         "wrong_initial": wrong,
-        "accuracy_initial": round(100 * (1 - wrong / len(df)), 2),
-        "wrong_current": wrong,
-        "accuracy_current": round(100 * (1 - wrong / len(df)), 2),
-        "download_url": None,
-    }
+        "accuracy_initial": round(100 * correct / (correct + wrong), 2) if (correct + wrong) else 0.0
+    }, merge=True)
 
-    with open(os.path.join(DB_PATH, f"{dataset_id}_rows.json"), "w") as f:
-        json.dump(rows, f)
-
-    with open(os.path.join(DB_PATH, f"{dataset_id}_metrics.json"), "w") as f:
-        json.dump(metrics, f)
-
-    print(f"Evaluation complete for {dataset_id} with {len(rows)} rows")
+    print(f"Metrics updated for {dataset_id}")

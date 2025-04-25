@@ -1,22 +1,35 @@
-# --- functions/export/app.py ---
-import os
-import json
 import pandas as pd
+from google.cloud import firestore, storage
+import os
+import tempfile
 
-DB_PATH = "./local_data/db"
-RESULTS_PATH = "./local_data/results"
-os.makedirs(RESULTS_PATH, exist_ok=True)
+RESULTS_BUCKET = "your-results-bucket-name"  # TODO: replace with your GCS bucket name
 
 def export_local(dataset_id):
-    print("Exporting dataset:", dataset_id)
-    rows_path = os.path.join(DB_PATH, f"{dataset_id}_rows.json")
-    if not os.path.exists(rows_path):
-        raise FileNotFoundError("Rows file not found")
-    print("opening dataset:", dataset_id)
-    with open(rows_path) as f:
-        rows = json.load(f)
+    db = firestore.Client()
+    storage_client = storage.Client()
 
-    print("Exporting dataset:", dataset_id)
+    rows_ref = db.collection('datasets').document(dataset_id).collection('rows')
+    docs = rows_ref.stream()
+
+    rows = [doc.to_dict() for doc in docs]
+
+    if not rows:
+        raise ValueError("No rows found to export.")
+
     df = pd.DataFrame(rows)
-    df.to_csv(os.path.join(RESULTS_PATH, f"{dataset_id}_corrected.csv"), index=False)
-    print(f"Exported corrected CSV for {dataset_id}")
+
+    # Save CSV to a temporary file
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp_file:
+        df.to_csv(tmp_file.name, index=False)
+        tmp_file_path = tmp_file.name
+
+    # Upload to GCS results bucket
+    bucket = storage_client.bucket(RESULTS_BUCKET)
+    blob = bucket.blob(f"results/{dataset_id}_corrected.csv")
+    blob.upload_from_filename(tmp_file_path)
+
+    print(f"Exported corrected CSV for {dataset_id} to GCS bucket {RESULTS_BUCKET}")
+
+    # Clean up temp file
+    os.remove(tmp_file_path)

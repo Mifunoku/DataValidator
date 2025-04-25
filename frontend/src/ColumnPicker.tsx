@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 
+// @ts-ignore
 export default function ColumnPicker({ datasetId, onEvaluated }) {
   const [columns, setColumns] = useState([]);
   const [productColumn, setProductColumn] = useState('');

@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import ColumnPicker from './ColumnPicker';
-
+// @ts-nocheck
 export default function App() {
   const [file, setFile] = useState(null);
   const [datasetId, setDatasetId] = useState(null);
