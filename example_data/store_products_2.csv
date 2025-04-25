@@ -1,0 +1,3 @@
+name,quantity,main_color,category,model_category,is_true
+Laptop,13,silver,electronics,electronics,TRUE
+Blueberry,1,blue,fruit,vegetable,FALSE

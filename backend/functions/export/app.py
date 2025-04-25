@@ -1,39 +1,35 @@
-import boto3, csv, io, os, json, datetime
+import pandas as pd
+from google.cloud import firestore, storage
+import os
+import tempfile
 
-s3 = boto3.client("s3")
-dynamodb = boto3.resource("dynamodb")
-RESULT_BUCKET = os.environ["RESULT_BUCKET"]
-TABLE_NAME = os.environ["TABLE_NAME"]
+RESULTS_BUCKET = "ds-results-files"
 
+def export_local(dataset_id):
+    db = firestore.Client()
+    storage_client = storage.Client()
 
-def lambda_handler(event, context):
-    dataset_id = json.loads(event["Records"][0]["body"])["dataset_id"]
-    table = dynamodb.Table(TABLE_NAME)
+    rows_ref = db.collection('datasets').document(dataset_id).collection('rows')
+    docs = rows_ref.stream()
 
-    rows = table.query(
-        KeyConditionExpression="PK = :pk AND begins_with(SK, :prefix)",
-        ExpressionAttributeValues={":pk": f"DATASET#{dataset_id}", ":prefix": "ROW#"},
-    )["Items"]
+    rows = [doc.to_dict() for doc in docs]
 
-    out_key = f"results/{dataset_id}.csv"
-    with io.StringIO() as fp:
-        writer = csv.DictWriter(fp, fieldnames=["product_text", "model_category", "fixed_category"])
-        writer.writeheader()
-        for r in rows:
-            writer.writerow(
-                {
-                    "product_text": r["product_text"],
-                    "model_category": r["model_category"],
-                    "fixed_category": r["fixed_category"] or "",
-                }
-            )
-        s3.put_object(Body=fp.getvalue(), Bucket=RESULT_BUCKET, Key=out_key)
+    if not rows:
+        raise ValueError("No rows found to export.")
 
-    url = s3.generate_presigned_url(
-        "get_object", Params={"Bucket": RESULT_BUCKET, "Key": out_key}, ExpiresIn=60 * 60
-    )
-    table.update_item(
-        Key={"PK": f"DATASET#{dataset_id}", "SK": "METRICS"},
-        UpdateExpression="SET download_url = :url, finished_at = :ts",
-        ExpressionAttributeValues={":url": url, ":ts": int(datetime.datetime.utcnow().timestamp())},
-    )
+    df = pd.DataFrame(rows)
+
+    # Save CSV to a temporary file
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp_file:
+        df.to_csv(tmp_file.name, index=False)
+        tmp_file_path = tmp_file.name
+
+    # Upload to GCS results bucket
+    bucket = storage_client.bucket(RESULTS_BUCKET)
+    blob = bucket.blob(f"results/{dataset_id}_corrected.csv")
+    blob.upload_from_filename(tmp_file_path)
+
+    print(f"Exported corrected CSV for {dataset_id} to GCS bucket {RESULTS_BUCKET}")
+
+    # Clean up temp file
+    os.remove(tmp_file_path)

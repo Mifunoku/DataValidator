@@ -1,0 +1,13 @@
+name,quantity,main_color,category,model_category,is_true
+Laptop,13,silver,electronics,electronics,TRUE
+Cabbage,7,green,vegetable,vegetable,TRUE
+Keyboard,2,white,electronics,electronics,TRUE
+Pepper,13,red,vegetable,vegetable,TRUE
+Smartphone,5,black,electronics,electronics,TRUE
+Monitor,4,black,electronics,electronics,TRUE
+Broccoli,1,green,vegetable,electronics,FALSE
+Laptop,20,silver,electronics,fruit,FALSE
+Tomato,12,red,vegetable,electronics,FALSE
+Headphones,4,black,electronics,fruit,FALSE
+Strawberry,7,red,fruit,electronics,FALSE
+Blueberry,1,blue,fruit,vegetable,FALSE
