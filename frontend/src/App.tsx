@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import ColumnPicker from './ColumnPicker';
 
 export default function App() {
   const [file, setFile] = useState(null);
@@ -8,6 +9,8 @@ export default function App() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
+  const [evaluated, setEvaluated] = useState(false);
+  const [uniqueCategories, setUniqueCategories] = useState([]);
 
   const handleUpload = async () => {
     if (!file) return;
@@ -24,22 +27,10 @@ export default function App() {
       });
 
       const uploadData = await uploadRes.json();
-      const newDatasetId = uploadData.dataset_id;
-      setDatasetId(newDatasetId);
-      setMessage("Upload successful. Evaluating dataset...");
-
-      const evalRes = await fetch(`http://localhost:8000/evaluate/${newDatasetId}`, {
-        method: "POST",
-      });
-
-      const evalData = await evalRes.json();
-      if (evalData.status === "success") {
-        setMessage("Dataset evaluated successfully. You can now view metrics.");
-      } else {
-        setMessage("Evaluation failed: " + evalData.message);
-      }
+      setDatasetId(uploadData.dataset_id);
+      setMessage("Upload successful. Now select columns to evaluate.");
     } catch (error) {
-      setMessage("Upload or evaluation failed.");
+      setMessage("Upload failed.");
     } finally {
       setLoading(false);
     }
@@ -55,15 +46,31 @@ export default function App() {
 
   const handleLoadRows = async () => {
     setLoading(true);
-    const res = await fetch(`./local_data/db/${datasetId}_rows.json`);
-    const data = await res.json();
-    setRows(data);
-    setCurrentIndex(0);
-    setLoading(false);
+    setMessage("Loading rows for review...");
+    try {
+      const res = await fetch(`http://localhost:8000/dataset/${datasetId}/rows`);
+      const data = await res.json();
+
+      if (!Array.isArray(data)) {
+        console.error("Expected array, got:", data);
+        setMessage("❌ Failed to load rows: " + (data.message || "Unknown error"));
+        return;
+      }
+
+      setRows(data);
+      const categories = [...new Set(data.map(row => row.model_category))];
+      setUniqueCategories(categories);
+      setCurrentIndex(0);
+      setMessage("");
+    } catch (err) {
+      setMessage("Failed to load rows: " + err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleFixCategory = async (newCategory) => {
-    const row = rows[currentIndex];
+  const handleFixCategory = async (index, newCategory) => {
+    const row = rows[index];
     const res = await fetch(`http://localhost:8000/rows/${datasetId}/${row.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -72,17 +79,39 @@ export default function App() {
 
     if (res.ok) {
       const updated = [...rows];
-      updated[currentIndex].fixed_category = newCategory;
+      updated[index].fixed_category = newCategory;
       setRows(updated);
-      if (currentIndex < rows.length - 1) {
-        setCurrentIndex(currentIndex + 1);
-      } else {
-        setMessage("Review complete. Run export_local(datasetId) in backend.");
-      }
     }
   };
 
-  const current = rows[currentIndex];
+  const handleExport = async () => {
+    setMessage("Generating export file...");
+  const trigger = await fetch(`http://localhost:8000/export/${datasetId}`, {
+    method: "POST",
+  });
+  const result = await trigger.json();
+
+  if (result.status !== "success") {
+    setMessage("Failed to generate export: " + result.message);
+    return;
+  }
+
+  setMessage("Downloading CSV...");
+  const res = await fetch(`http://localhost:8000/export/${datasetId}`);
+  if (res.ok) {
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${datasetId}_corrected.csv`;
+    a.click();
+    setMessage("Export complete");
+  } else {
+    setMessage("Download failed");
+  }
+};
+
+  const currentBatch = rows.slice(currentIndex, currentIndex + 10);
 
   return (
     <div className="p-4 max-w-xl mx-auto">
@@ -106,7 +135,11 @@ export default function App() {
         </>
       )}
 
-      {datasetId && (
+      {datasetId && !evaluated && (
+        <ColumnPicker datasetId={datasetId} onEvaluated={() => setEvaluated(true)} />
+      )}
+
+      {evaluated && (
         <div className="mt-4">
           <p><strong>Dataset ID:</strong> {datasetId}</p>
           <button
@@ -119,9 +152,16 @@ export default function App() {
           <button
             onClick={handleLoadRows}
             disabled={loading}
-            className="mt-2 px-4 py-2 bg-yellow-500 text-white rounded"
+            className="mt-2 px-4 py-2 bg-yellow-500 text-white rounded mr-2"
           >
             {loading ? "Loading..." : "Load for Review"}
+          </button>
+          <button
+            onClick={handleExport}
+            disabled={loading}
+            className="mt-2 px-4 py-2 bg-purple-500 text-white rounded"
+          >
+            Export CSV
           </button>
         </div>
       )}
@@ -139,21 +179,44 @@ export default function App() {
         </div>
       )}
 
-      {current && (
-        <div className="mt-6 border p-4 rounded shadow">
-          <h3 className="font-bold mb-2">Reviewing Row {currentIndex + 1} of {rows.length}</h3>
-          <p className="mb-2"><strong>Text:</strong> {current.product_text}</p>
-          <p className="mb-2"><strong>Model Prediction:</strong> {current.model_category}</p>
-          <p className="mb-4"><strong>Fixed Category:</strong> {current.fixed_category || '—'}</p>
+      {currentBatch.length > 0 && (
+        <div className="mt-6">
+          {currentBatch.map((row, index) => (
+            <div key={row.id} className="border p-4 rounded shadow mb-4">
+              <h3 className="font-bold mb-2">Row {currentIndex + index + 1} of {rows.length}</h3>
+              <p className="mb-2"><strong>Text:</strong> {row.product_text}</p>
+              <p className="mb-2"><strong>Model Prediction:</strong> {row.model_category}</p>
+              <p className="mb-4"><strong>Fixed Category:</strong> {row.fixed_category || '—'}</p>
+              <div className="space-x-2">
+                {uniqueCategories.map(cat => (
+                  <button
+                    key={cat}
+                    onClick={() => handleFixCategory(currentIndex + index, cat)}
+                    className="px-3 py-1 bg-blue-600 text-white rounded"
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
 
-          <input
-            type="text"
-            placeholder="Enter correct category"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleFixCategory(e.target.value);
-            }}
-            className="px-2 py-1 border rounded w-full"
-          />
+          <div className="flex justify-between mt-4">
+            <button
+              onClick={() => setCurrentIndex(prev => Math.max(0, prev - 10))}
+              disabled={currentIndex === 0}
+              className="px-4 py-2 bg-gray-400 text-white rounded"
+            >
+              Previous
+            </button>
+            <button
+              onClick={() => setCurrentIndex(prev => Math.min(rows.length - 1, prev + 10))}
+              disabled={currentIndex + 10 >= rows.length}
+              className="px-4 py-2 bg-gray-600 text-white rounded"
+            >
+              Next
+            </button>
+          </div>
         </div>
       )}
 

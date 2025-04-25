@@ -1,7 +1,6 @@
 import os
 import pandas as pd
-from fastapi import APIRouter, Query
-from functions.evaluate.app import evaluate_local
+from fastapi import APIRouter
 
 RAW_PATH = "./local_data/raw"
 
@@ -18,13 +17,5 @@ def get_column_names(dataset_id: str):
         if len(df.columns) == 1:
             df = pd.read_csv(csv_path, sep=';')
         return {"status": "success", "columns": df.columns.tolist()}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-@router.post("/evaluate/{dataset_id}")
-def evaluate_with_columns(dataset_id: str, product_column: str = Query(...), category_column: str = Query(...)):
-    try:
-        evaluate_local(dataset_id, product_column, category_column)
-        return {"status": "success", "message": f"Evaluated {dataset_id}"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
