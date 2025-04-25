@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { API_BASE } from "./config";
 
 // @ts-ignore
 export default function ColumnPicker({ datasetId, onEvaluated }) {
@@ -10,7 +11,7 @@ export default function ColumnPicker({ datasetId, onEvaluated }) {
 
   useEffect(() => {
     if (!datasetId) return;
-    fetch(`http://localhost:8000/columns/${datasetId}`)
+    fetch(`${API_BASE}/columns/${datasetId}`)
       .then(res => res.json())
       .then(data => {
         if (data.status === 'success') {
@@ -28,7 +29,7 @@ export default function ColumnPicker({ datasetId, onEvaluated }) {
     }
     setLoading(true);
     const res = await fetch(
-      `http://localhost:8000/evaluate/${datasetId}?product_column=${productColumn}&category_column=${categoryColumn}`,
+      `${API_BASE}/evaluate/${datasetId}?product_column=${productColumn}&category_column=${categoryColumn}`,
       { method: 'POST' }
     );
     const result = await res.json();

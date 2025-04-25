@@ -5,12 +5,12 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from api.routers import upload, dataset
-from hooks.evaluate_trigger import router as evaluate_router
+from api.routers.evaluate_trigger import router as evaluate_router
 
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["https://storage.googleapis.com"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

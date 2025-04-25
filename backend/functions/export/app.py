@@ -3,7 +3,7 @@ from google.cloud import firestore, storage
 import os
 import tempfile
 
-RESULTS_BUCKET = "your-results-bucket-name"  # TODO: replace with your GCS bucket name
+RESULTS_BUCKET = "ds-results-files"
 
 def export_local(dataset_id):
     db = firestore.Client()

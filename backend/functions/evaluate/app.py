@@ -1,24 +1,34 @@
 import pandas as pd
-from google.cloud import firestore
+from google.cloud import firestore, storage
+from io import StringIO
 import uuid
 
+# Firestore client
+db = firestore.Client()
 
-def evaluate_local(dataset_id, product_column: str, category_column: str):
-    db = firestore.Client()
+# Storage client
+storage_client = storage.Client()
 
-    # Path for raw uploads in GCS (adjust if needed)
-    raw_bucket_name = "your-raw-bucket-name"  # TODO: replace with your GCS raw bucket name
+# Raw bucket name
+RAW_BUCKET = "ds-raw-files"  # <-- Make sure this is your real bucket name
 
-    from google.cloud import storage
-    storage_client = storage.Client()
-    bucket = storage_client.bucket(raw_bucket_name)
+def evaluate_local(dataset_id: str, product_column: str, category_column: str):
+    # Get the blob from GCS
+    bucket = storage_client.bucket(RAW_BUCKET)
     blob = bucket.blob(f"raw/{dataset_id}.csv")
 
-    # Download raw CSV content
+    # Download CSV content as text
     contents = blob.download_as_text()
-    df = pd.read_csv(pd.compat.StringIO(contents), sep=';')
 
-    # Build rows
+    # Parse CSV
+    df = pd.read_csv(StringIO(contents))
+    if len(df.columns) == 1:
+        df = pd.read_csv(StringIO(contents), sep=';')
+
+    if len(df.columns) == 1:
+        raise ValueError("CSV file has only one column. Please check the file format.")
+
+    # Evaluate rows
     rows = []
     correct = 0
     wrong = 0
@@ -30,8 +40,7 @@ def evaluate_local(dataset_id, product_column: str, category_column: str):
         if not isinstance(product_text, str) or not isinstance(model_category, str):
             continue
 
-        correct_prediction = (product_text.lower() in model_category.lower())
-        if correct_prediction:
+        if product_text.lower() in model_category.lower():
             correct += 1
         else:
             wrong += 1
@@ -43,7 +52,7 @@ def evaluate_local(dataset_id, product_column: str, category_column: str):
             "fixed_category": None
         })
 
-    # Save parsed rows into Firestore
+    # Save rows to Firestore (batch)
     batch = db.batch()
     dataset_ref = db.collection("datasets").document(dataset_id)
 
@@ -55,12 +64,15 @@ def evaluate_local(dataset_id, product_column: str, category_column: str):
 
     print(f"Saved {len(rows)} rows for dataset {dataset_id} to Firestore")
 
-    # Save initial evaluation metrics into Firestore
+    # Save evaluation metrics
+    total = correct + wrong
+    accuracy = round(100 * correct / total, 2) if total > 0 else 0.0
+
     dataset_ref.set({
-        "total": correct + wrong,
+        "total": total,
         "correct_initial": correct,
         "wrong_initial": wrong,
-        "accuracy_initial": round(100 * correct / (correct + wrong), 2) if (correct + wrong) else 0.0
+        "accuracy_initial": accuracy
     }, merge=True)
 
     print(f"Metrics updated for {dataset_id}")

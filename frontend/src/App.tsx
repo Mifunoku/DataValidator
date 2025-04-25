@@ -1,5 +1,6 @@
 /* eslint-disable */
 // @ts-nocheck
+import { API_BASE } from "./config";
 import { useState } from 'react';
 import ColumnPicker from './ColumnPicker';
 
@@ -23,7 +24,7 @@ export default function App() {
     formData.append("file", file);
 
     try {
-      const uploadRes = await fetch("http://localhost:8000/upload", {
+      const uploadRes = await fetch(`${API_BASE}/upload`, {
         method: "POST",
         body: formData,
       });
@@ -40,7 +41,7 @@ export default function App() {
 
   const handleGetMetrics = async () => {
     setLoading(true);
-    const res = await fetch(`http://localhost:8000/dataset/${datasetId}/metrics`);
+    const res = await fetch(`${API_BASE}/dataset/${datasetId}/metrics`);
     const data = await res.json();
     setMetrics(data);
     setLoading(false);
@@ -50,12 +51,12 @@ export default function App() {
     setLoading(true);
     setMessage("Loading rows for review...");
     try {
-      const res = await fetch(`http://localhost:8000/dataset/${datasetId}/rows`);
+      const res = await fetch(`${API_BASE}/dataset/${datasetId}/rows`);
       const data = await res.json();
 
       if (!Array.isArray(data)) {
         console.error("Expected array, got:", data);
-        setMessage("❌ Failed to load rows: " + (data.message || "Unknown error"));
+        setMessage("Failed to load rows: " + (data.message || "Unknown error"));
         return;
       }
 
@@ -73,7 +74,7 @@ export default function App() {
 
   const handleFixCategory = async (index, newCategory) => {
     const row = rows[index];
-    const res = await fetch(`http://localhost:8000/rows/${datasetId}/${row.id}`, {
+    const res = await fetch(`${API_BASE}/rows/${datasetId}/${row.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ fixed_category: newCategory })
@@ -88,7 +89,7 @@ export default function App() {
 
   const handleExport = async () => {
     setMessage("Generating export file...");
-  const trigger = await fetch(`http://localhost:8000/export/${datasetId}`, {
+  const trigger = await fetch(`${API_BASE}/export/${datasetId}`, {
     method: "POST",
   });
   const result = await trigger.json();
@@ -99,7 +100,7 @@ export default function App() {
   }
 
   setMessage("Downloading CSV...");
-  const res = await fetch(`http://localhost:8000/export/${datasetId}`);
+  const res = await fetch(`${API_BASE}/export/${datasetId}`);
   if (res.ok) {
     const blob = await res.blob();
     const url = window.URL.createObjectURL(blob);

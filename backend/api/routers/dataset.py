@@ -1,13 +1,18 @@
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
-from api.models import DatasetMetrics, PatchRowRequest, DataRow
-import json, os
+from fastapi.responses import StreamingResponse
+from api.models import DatasetMetrics, PatchRowRequest
+from google.cloud import firestore, storage
 from functions.export.app import export_local
+import io
 
 router = APIRouter()
-DATA_PATH = "./local_data/db"
-os.makedirs(DATA_PATH, exist_ok=True)
 
+# Firestore client
+db = firestore.Client()
+
+# GCS client
+storage_client = storage.Client()
+RESULTS_BUCKET = "ds-results-files"
 
 @router.post("/export/{dataset_id}")
 def trigger_export(dataset_id: str):
@@ -19,43 +24,49 @@ def trigger_export(dataset_id: str):
 
 @router.get("/export/{dataset_id}")
 def download_export(dataset_id: str):
-    path = f"./local_data/results/{dataset_id}_corrected.csv"
-    if not os.path.exists(path):
+    bucket = storage_client.bucket(RESULTS_BUCKET)
+    blob = bucket.blob(f"results/{dataset_id}_corrected.csv")
+
+    if not blob.exists():
         return {"status": "error", "message": "Export file not found"}
-    return FileResponse(path, media_type="text/csv", filename=f"{dataset_id}_corrected.csv")
+
+    stream = io.BytesIO()
+    blob.download_to_file(stream)
+    stream.seek(0)
+
+    return StreamingResponse(stream, media_type="text/csv", headers={
+        "Content-Disposition": f"attachment; filename={dataset_id}_corrected.csv"
+    })
 
 @router.get("/dataset/{dataset_id}/rows")
 def get_rows(dataset_id: str):
-    path = os.path.join(DATA_PATH, f"{dataset_id}_rows.json")
-    if not os.path.exists(path):
-        return {"status": "error", "message": "Dataset not found"}
-    with open(path) as f:
-        return json.load(f)  # this returns a list of rows
+    rows_ref = db.collection("datasets").document(dataset_id).collection("rows")
+    docs = rows_ref.stream()
+    return [doc.to_dict() for doc in docs]
 
 
 @router.get("/dataset/{dataset_id}/metrics", response_model=DatasetMetrics)
 def get_metrics(dataset_id: str):
-    path = os.path.join(DATA_PATH, f"{dataset_id}_metrics.json")
-    if not os.path.exists(path):
+    doc = db.collection("datasets").document(dataset_id).get()
+    if not doc.exists:
         raise HTTPException(status_code=404, detail="Dataset not found")
-    with open(path) as f:
-        return json.load(f)
+
+    data = doc.to_dict()
+
+    try:
+        return DatasetMetrics(**data)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Invalid metrics data: {str(e)}")
 
 @router.patch("/rows/{dataset_id}/{row_id}")
 def patch_row(dataset_id: str, row_id: int, body: PatchRowRequest):
-    path = os.path.join(DATA_PATH, f"{dataset_id}_rows.json")
-    if not os.path.exists(path):
-        raise HTTPException(status_code=404, detail="Dataset not found")
+    row_ref = db.collection("datasets").document(dataset_id).collection("rows").document(str(row_id))
 
-    with open(path) as f:
-        data = json.load(f)
-
-    if row_id >= len(data):
+    if not row_ref.get().exists:
         raise HTTPException(status_code=404, detail="Row ID not found")
 
-    data[row_id]["fixed_category"] = body.fixed_category
-
-    with open(path, "w") as f:
-        json.dump(data, f)
+    row_ref.update({
+        "fixed_category": body.fixed_category
+    })
 
     return {"status": "ok"}

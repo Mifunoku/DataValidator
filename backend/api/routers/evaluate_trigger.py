@@ -1,23 +1,35 @@
-import os
-import pandas as pd
 from fastapi import APIRouter, Query
 from functions.evaluate.app import evaluate_local
-
-RAW_PATH = "./local_data/raw"
+from google.cloud import storage
+import pandas as pd
+import io
 
 router = APIRouter()
 
+# GCS client
+storage_client = storage.Client()
+RAW_BUCKET = "ds-raw-files"
+
 @router.get("/columns/{dataset_id}")
 def get_column_names(dataset_id: str):
-    csv_path = os.path.join(RAW_PATH, f"{dataset_id}.csv")
-    if not os.path.exists(csv_path):
-        return {"status": "error", "message": "Dataset file not found"}
-
     try:
-        df = pd.read_csv(csv_path)
-        if len(df.columns) == 1:
-            df = pd.read_csv(csv_path, sep=';')
+        bucket = storage_client.bucket(RAW_BUCKET)
+        blob = bucket.blob(f"raw/{dataset_id}.csv")
+
+        if not blob.exists():
+            return {"status": "error", "message": "Dataset file not found"}
+
+        content = blob.download_as_bytes()
+
+        try:
+            df = pd.read_csv(io.BytesIO(content))
+            if len(df) <= 1:
+                df = pd.read_csv(io.BytesIO(content), sep=';')
+        except Exception:
+            return {"status": "error", "message": "Failed to read CSV file"}
+
         return {"status": "success", "columns": df.columns.tolist()}
+
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
