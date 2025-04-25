@@ -1,19 +1,22 @@
-import os, json, csv
+# --- functions/export/app.py ---
+import os
+import json
+import pandas as pd
 
 DB_PATH = "./local_data/db"
-EXPORT_PATH = "./local_data/results"
-os.makedirs(EXPORT_PATH, exist_ok=True)
+RESULTS_PATH = "./local_data/results"
+os.makedirs(RESULTS_PATH, exist_ok=True)
 
 def export_local(dataset_id):
-    with open(os.path.join(DB_PATH, f"{dataset_id}_rows.json")) as f:
+    print("Exporting dataset:", dataset_id)
+    rows_path = os.path.join(DB_PATH, f"{dataset_id}_rows.json")
+    if not os.path.exists(rows_path):
+        raise FileNotFoundError("Rows file not found")
+    print("opening dataset:", dataset_id)
+    with open(rows_path) as f:
         rows = json.load(f)
 
-    out_path = os.path.join(EXPORT_PATH, f"{dataset_id}.csv")
-    with open(out_path, "w", newline="") as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=["product_text", "model_category", "fixed_category"])
-        writer.writeheader()
-        for r in rows:
-            writer.writerow(r)
-
-    print(f"Exported corrected CSV to {out_path}")
-    return out_path
+    print("Exporting dataset:", dataset_id)
+    df = pd.DataFrame(rows)
+    df.to_csv(os.path.join(RESULTS_PATH, f"{dataset_id}_corrected.csv"), index=False)
+    print(f"Exported corrected CSV for {dataset_id}")

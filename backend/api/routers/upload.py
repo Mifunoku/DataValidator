@@ -8,6 +8,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 @router.post("/upload")
 def upload_dataset(file: UploadFile = File(...)):
     dataset_id = str(uuid.uuid4())
+    print("Uploading dataset with ID:", dataset_id)
     file_path = os.path.join(UPLOAD_DIR, f"{dataset_id}.csv")
     with open(file_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
